@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1 - 2026-08-13
+
+- Localize desktop, console, and webhook reset-event messages when `--lang zh` is selected.
+
 ## 0.2.0 - 2026-08-13
 
 - Separate the normal weekly refresh from possible or confirmed extra resets.

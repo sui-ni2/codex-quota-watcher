@@ -5,7 +5,7 @@ import { dispatchNotifications } from "./notifiers.mjs";
 import { normalizeRateLimits, evaluateTransition } from "./state-machine.mjs";
 import { defaultStatePath, loadState, saveState } from "./state-store.mjs";
 import { analyzeWorkspaceMessages } from "./evidence.mjs";
-import { renderStatus } from "./status-view.mjs";
+import { localizeEvent, renderStatus } from "./status-view.mjs";
 
 function parseArgs(argv) {
   const options = {
@@ -41,7 +41,7 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log(`Codex Quota Watcher 0.2.0
+  console.log(`Codex Quota Watcher 0.2.1
 
 Usage:
   codex-quota-watcher --once [--json]
@@ -103,7 +103,7 @@ async function main() {
       if (options.json) console.log(JSON.stringify({ snapshot, officialSignal }, null, 2));
       else if (options.once) console.log(renderStatus(snapshot, nextState, options.language));
       for (const event of events) {
-        const failures = await dispatchNotifications(event, options.channels);
+        const failures = await dispatchNotifications(localizeEvent(event, options.language), options.channels);
         for (const failure of failures) console.error(`notification warning: ${failure}`);
       }
     } catch (error) {

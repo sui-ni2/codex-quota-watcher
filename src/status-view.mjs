@@ -10,6 +10,20 @@ function isChinese(locale) {
   return locale.toLowerCase().startsWith("zh");
 }
 
+const ZH_EVENT_MESSAGES = {
+  SCHEDULED_RESET_CONFIRMED: "Codex 正常额度刷新已确认。",
+  EXTRA_RESET_CONFIRMED: "Codex 额度已提前恢复，额外重置已确认。",
+  RECOVERY_CONFIRMED: "Codex 额度已经恢复，但无法确认重置类型。",
+  RESET_CREDIT_GRANTED: "你获得了一次 Codex 重置机会；额度尚未自动重置。",
+  EXTRA_RESET_POSSIBLE: "官方账户消息显示 Codex 可能即将额外重置。",
+};
+
+export function localizeEvent(event, language = "auto") {
+  const locale = localeFor(language);
+  if (!isChinese(locale) || !ZH_EVENT_MESSAGES[event?.type]) return event;
+  return { ...event, message: ZH_EVENT_MESSAGES[event.type] };
+}
+
 function dateText(epochSeconds, locale) {
   if (!epochSeconds) return isChinese(locale) ? "未知" : "Unknown";
   return new Intl.DateTimeFormat(locale, {

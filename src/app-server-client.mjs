@@ -49,7 +49,7 @@ export class AppServerClient extends EventEmitter {
       clientInfo: {
         name: "codex_quota_watcher",
         title: "Codex Quota Watcher",
-        version: "0.2.0",
+        version: "0.2.1",
       },
     });
     this.notify("initialized", {});

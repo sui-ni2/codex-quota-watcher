@@ -1,6 +1,6 @@
 {
   "name": "codex-quota-watcher",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Distinguish scheduled Codex quota refreshes, early resets, and earned reset credits.",
   "type": "module",
   "bin": {
