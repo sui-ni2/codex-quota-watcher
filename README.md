@@ -1,84 +1,82 @@
 # Codex Quota Watcher
 
-Get a notification when a **blocked Codex quota becomes available again**.
+Know the difference between a normal Codex refresh, an early recovery, and an earned reset credit.
 
-Codex Quota Watcher talks to the local, authenticated `codex app-server` and reads the official `account/rateLimits/read` method. It does not scrape the UI, parse private logs, start a model turn, or read your credential files.
+Codex Quota Watcher reads the authenticated local `codex app-server`. It does not scrape the Codex UI, inspect credentials or private logs, start model turns, redeem reset credits, collect telemetry, or display advertising.
 
-> Status: V0.1. The core read path has been verified on Windows with Codex CLI 0.147.0. App-server schemas are version-specific, so compatibility is tested conservatively and failures become `unknown`, never a false “available” result.
+> V0.2 is intentionally conservative. Account changes can confirm what happened. A possible future reset is shown only when the authenticated account receives an explicit official message about an upcoming Codex reset. Social posts and community reports are not treated as proof.
 
-## What counts as a reset?
-
-Only this transition:
+## What you see
 
 ```text
-backend-blocked / 100% used  ->  available
-                         => RESET_CONFIRMED
+Codex 额度
+────────────────────────────
+每周刷新      8月19日 23:31
+额外重置      暂无可靠信号
+当前状态      可用 · 最高已用 42%
 ```
 
-These do **not** trigger a notification:
+The three lines deliberately have different meanings:
 
-- usage falling from 80% to 50%;
-- the watcher starting for the first time;
-- a moving `resetsAt` timestamp;
-- a network or authentication error;
-- an incomplete or unknown response.
+- **Weekly refresh** is the next reset timestamp of a weekly-sized account window.
+- **Extra reset** is a separate warning, never inferred from an ordinary usage decrease.
+- **Current status** is the server-classified account state and maximum observed usage.
 
-This deliberately avoids claiming that ordinary rolling-window replenishment is a full quota reset.
+## Reset classification
+
+| Result | Required evidence |
+|---|---|
+| `SCHEDULED_RESET_CONFIRMED` | A previously blocked bucket becomes available at or after its expected reset time. |
+| `EXTRA_RESET_CONFIRMED` | A previously blocked bucket becomes available more than 15 minutes before its expected reset time. |
+| `RECOVERY_CONFIRMED` | The bucket recovers, but the prior response did not include enough timing evidence to prove the reset type. |
+| `RESET_CREDIT_GRANTED` | `rateLimitResetCredits.availableCount` increases. This does **not** mean quota was automatically restored. |
+| `EXTRA_RESET_POSSIBLE` | An authenticated official workspace message explicitly refers to a future Codex quota reset. |
+
+These never count as a reset: a lower `usedPercent` by itself, a moving `resetsAt` value, first launch, network failure, a community rumor, or an unrelated OpenAI Status recovery.
+
+If the watcher was offline during a normal weekly boundary, it can report the refresh after restart when the persisted old window has ended and the account exposes a new weekly window. If it had previously persisted a blocked state, it can likewise report recovery after restart. It cannot prove an unobserved extra reset when no prior baseline exists.
 
 ## Requirements
 
 - Node.js 20 or newer.
-- A recent Codex CLI with `codex app-server` and `account/rateLimits/read`.
-- Codex logged in with ChatGPT-backed authentication. API-key-only and Bedrock authentication do not expose this ChatGPT account endpoint.
+- A recent Codex CLI with `codex app-server` and ChatGPT-backed authentication.
+- Windows, macOS, or Linux.
 
-Check your setup:
+API-key-only and Bedrock authentication do not expose the ChatGPT account rate-limit endpoint.
 
-```powershell
-codex --version
-codex login status
-```
+## Install
 
-## Install from source
-
-```powershell
+```bash
 git clone https://github.com/sui-ni2/codex-quota-watcher.git
 cd codex-quota-watcher
 npm install
 npm link
 ```
 
-No runtime npm dependencies are required.
+There are no runtime npm dependencies.
 
 ## Run
 
-Read once and establish the initial baseline:
+Show the current status and establish a baseline:
 
-```powershell
+```bash
 codex-quota-watcher --once
 ```
 
-Watch every 60 seconds:
+Use Chinese or English explicitly:
 
-```powershell
+```bash
+codex-quota-watcher --once --lang zh
+codex-quota-watcher --once --lang en
+```
+
+Watch continuously and notify once per meaningful event:
+
+```bash
 codex-quota-watcher --interval 60
 ```
 
-Console only:
-
-```powershell
-codex-quota-watcher --interval 60 --notify console
-```
-
-Desktop plus webhook:
-
-```powershell
-$env:CODEX_QUOTA_WATCHER_WEBHOOK_URL = "https://example.com/your-private-hook"
-codex-quota-watcher --notify desktop,webhook
-```
-
-The webhook URL is read from the process environment and is never written to watcher state or logs.
-
-### Useful options
+Useful options:
 
 ```text
 --once              Read once, save the baseline, and exit
@@ -87,53 +85,49 @@ The webhook URL is read from the process environment and is never written to wat
 --notify CHANNELS   console, desktop, webhook
 --state-file PATH   Override the local state file
 --codex-bin PATH    Override the Codex executable
---json              Print the safe normalized snapshot
+--lang LANG         auto, zh, or en
+--json              Print the redacted normalized result
 ```
 
-## How it works
+The optional webhook URL comes only from `CODEX_QUOTA_WATCHER_WEBHOOK_URL` and is never written to state or logs.
 
-1. Starts `codex app-server` over local stdio.
-2. Completes the documented `initialize` / `initialized` handshake.
-3. Calls the read-only `account/rateLimits/read` method.
-4. Keeps only a redacted snapshot: status, bucket, usage percentage, window duration, and reset timestamp.
-5. Persists the last state atomically.
-6. Emits one notification after a confirmed `blocked -> available` transition.
+## Evidence boundary
 
-The app-server can also emit `account/rateLimits/updated`; the watcher uses it as a prompt to re-read the authoritative snapshot, with polling as a fallback.
+The official [Codex app-server documentation](https://learn.chatgpt.com/docs/app-server) defines the read-only `account/rateLimits/read` method, the `account/rateLimits/updated` notification, earned reset credits, and authenticated workspace messages.
 
-See [Architecture](docs/ARCHITECTURE.md) and [Privacy and security](docs/PRIVACY.md).
-Platform-specific setup, including macOS `launchd`, is in [Platform setup](docs/PLATFORMS.md).
+The watcher uses those account-scoped signals as follows:
 
-## Evidence levels
+1. Account state confirms actual recovery.
+2. Earned reset count confirms a reset credit was granted, not consumed.
+3. Official workspace messages can warn about a possible future reset.
+4. Public staff posts, GitHub reports, Reddit, and third-party trackers are not ingested in V0.2 because no stable, unauthenticated source proves their identity and meaning reliably enough.
 
-| Level | Signal | V0.1 use |
-|---|---|---|
-| A | `account/rateLimits/read` backend classification | Authoritative trigger |
-| B | `usedPercent >= 100` from the Codex bucket | Blocking fallback |
-| C | Client error text or logs | Not used |
-| D | News or social posts about resets | Not used |
+This boundary is a feature: the tool prefers “unknown” over a confident-looking false alert.
+
+## Platform setup
+
+See [Platform setup](docs/PLATFORMS.md) for Windows Task Scheduler, macOS `launchd`, Linux, absolute path handling, and state locations.
+
+## Privacy and security
+
+See [Privacy and security](docs/PRIVACY.md). The watcher never calls `account/rateLimitResetCredit/consume`.
 
 ## Test
 
-```powershell
+```bash
 npm test
 npm run check
 ```
 
-## Important limitations
+CI covers Node.js 20 and 22 on Windows, macOS, and Ubuntu. A real authenticated quota read has been verified on Windows; macOS and Linux account behavior still needs independent real-account verification.
 
+## Limitations
+
+- The app-server protocol can evolve with Codex releases.
+- The watcher cannot reconstruct an account transition that happened while it was offline.
+- An early recovery proves that quota returned before the recorded deadline; it cannot prove the organizational reason OpenAI chose to restore it.
+- Official intent warnings depend on the account actually receiving a matching workspace message.
 - This is an independent community project, not an OpenAI product.
-- The app-server protocol is versioned with the installed Codex CLI. A future Codex release can change behavior.
-- The watcher confirms recovery only after it has previously observed a blocked state. It cannot reconstruct a missed transition while it was offline.
-- It does not consume earned reset credits and does not attempt to increase or bypass limits.
-
-## Platform verification
-
-| Platform | Code and CI | Real authenticated quota read |
-|---|---|---|
-| Windows 11 | Yes | Verified with Codex CLI 0.147.0 |
-| macOS | CI target | Community verification needed |
-| Linux | CI target | Community verification needed |
 
 ## License
 

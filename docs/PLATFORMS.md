@@ -29,7 +29,7 @@ command -v codex-quota-watcher
 First run in Terminal to establish the baseline and allow notifications if macOS asks:
 
 ```bash
-codex-quota-watcher --once
+codex-quota-watcher --once --lang zh
 ```
 
 For a login-time background process, copy `examples/com.codex-quota-watcher.plist` to `~/Library/LaunchAgents/`, replace all three placeholder paths with the values from `command -v`, then load it:
@@ -74,4 +74,4 @@ For a headless server, use `--notify console` or an explicitly configured webhoo
 - macOS: `~/Library/Application Support/codex-quota-watcher/state.json`
 - Linux: `$XDG_STATE_HOME/codex-quota-watcher/state.json`, or `~/.local/state/...`
 
-The stored file contains only redacted quota state and deduplication metadata.
+The stored file contains only redacted quota state, the reset-credit count, generic official-signal metadata, and deduplication data.

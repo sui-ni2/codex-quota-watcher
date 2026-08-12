@@ -1,17 +1,16 @@
-# Codex Quota Watcher v0.1.0
+# Codex Quota Watcher v0.2.0
 
-Codex Quota Watcher is a small local tool that tells you when a previously blocked Codex quota is available again.
+V0.2 makes reset claims more precise and keeps the visible status compact.
 
-The first release uses Codex's documented local app-server method instead of scraping the UI or guessing from news. It stores only a redacted local state and will not fire just because usage percentage decreases.
+## Highlights
 
-Highlights:
+- Shows the normal weekly refresh separately from extra-reset evidence.
+- Confirms whether a blocked quota recovered near its expected time or substantially early.
+- Detects newly granted earned reset credits without redeeming them or persisting their IDs.
+- Uses only authenticated official workspace messages for possible-reset warnings.
+- Rejects ordinary usage decreases, timestamp drift, negated messages, rumors, and incomplete data.
+- Adds a concise Chinese/English status view.
+- Migrates V0.1 state automatically.
+- Removes repository launch and promotion copy.
 
-- confirmed `blocked -> available` detection;
-- duplicate prevention across restarts;
-- configurable polling;
-- console, desktop, and opt-in webhook notifications;
-- no credential-file access;
-- no model turn and no reset-credit consumption;
-- zero runtime npm dependencies.
-
-Compatibility: verified on Windows with Codex CLI 0.147.0 and Node.js 20+.
+The account read path remains private and local through the documented Codex app-server. No telemetry, advertising, credential-file access, model turns, or social-feed scraping is included.

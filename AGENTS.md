@@ -2,7 +2,7 @@
 
 ## Project purpose
 
-Build a small, open-source watcher that detects a confirmed Codex account transition from blocked (`exhausted` or backend-classified usage limited) to available and notifies the user. V0.1 is Codex-only.
+Build a small, open-source Codex-only watcher that shows the normal weekly refresh, distinguishes scheduled recovery from an early/extra reset, detects earned reset credits, and warns only from high-quality official intent signals.
 
 ## Important commands
 
@@ -30,11 +30,14 @@ Build a small, open-source watcher that detects a confirmed Codex account transi
 - `node --check ./src/app-server-client.mjs`
 - `node --check ./src/state-machine.mjs`
 - `node --check ./src/notifiers.mjs`
+- `node --check ./src/evidence.mjs`
+- `node --check ./src/status-view.mjs`
 
 ## Project-specific safety rules
 
 - Use the local `codex app-server` process for authentication; the watcher must never open credential files itself.
 - `account/rateLimits/read` is read-only. Never call `account/rateLimitResetCredit/consume`.
-- A lower `usedPercent` alone is not a reset. Notify only after a persisted blocked-to-available transition.
+- A lower `usedPercent` alone is not a reset. Confirm recovery only after a persisted blocked-to-available transition, and classify it against the previously observed reset window.
+- Never scrape authenticated social feeds or treat community keyword matches as official intent.
 - Treat protocol errors and missing fields as `unknown`, never as `available`.
 - Redact opaque identifiers and account metadata from logs and saved state.

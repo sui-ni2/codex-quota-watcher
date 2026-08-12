@@ -16,7 +16,17 @@ export function defaultStatePath() {
 export async function loadState(filePath) {
   try {
     const parsed = JSON.parse(await readFile(filePath, "utf8"));
-    return parsed?.schemaVersion === 1 ? parsed : null;
+    if (parsed?.schemaVersion === 2) return parsed;
+    if (parsed?.schemaVersion === 1) {
+      return {
+        schemaVersion: 2,
+        lastSnapshot: parsed.lastSnapshot ?? null,
+        blockedSince: parsed.blockedSince ?? null,
+        lastEventKey: parsed.lastEventKey ?? null,
+        officialSignal: null,
+      };
+    }
+    return null;
   } catch (error) {
     if (error.code === "ENOENT") return null;
     throw error;

@@ -49,7 +49,7 @@ export class AppServerClient extends EventEmitter {
       clientInfo: {
         name: "codex_quota_watcher",
         title: "Codex Quota Watcher",
-        version: "0.1.0",
+        version: "0.2.0",
       },
     });
     this.notify("initialized", {});
@@ -58,6 +58,11 @@ export class AppServerClient extends EventEmitter {
   async readRateLimits() {
     await this.start();
     return this.request("account/rateLimits/read");
+  }
+
+  async readWorkspaceMessages() {
+    await this.start();
+    return this.request("account/workspaceMessages/read");
   }
 
   request(method, params) {

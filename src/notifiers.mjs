@@ -47,6 +47,8 @@ export async function notifyWebhook(event, url = process.env.CODEX_QUOTA_WATCHER
       type: event.type,
       limitId: event.limitId,
       occurredAt: event.occurredAt,
+      confidence: event.confidence,
+      source: event.source,
       message: event.message,
     }),
   });
