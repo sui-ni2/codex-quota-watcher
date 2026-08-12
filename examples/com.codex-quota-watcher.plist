@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.codex-quota-watcher</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/ABSOLUTE/PATH/TO/node</string>
+    <string>/ABSOLUTE/PATH/TO/codex-quota-watcher</string>
+    <string>--interval</string>
+    <string>60</string>
+    <string>--notify</string>
+    <string>desktop</string>
+    <string>--codex-bin</string>
+    <string>/ABSOLUTE/PATH/TO/codex</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardOutPath</key>
+  <string>/tmp/codex-quota-watcher.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/codex-quota-watcher.err.log</string>
+</dict>
+</plist>
