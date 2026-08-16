@@ -1,0 +1,77 @@
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+function Assert-True {
+    param([bool]$Condition, [string]$Message)
+    if (-not $Condition) { throw $Message }
+}
+
+$RepoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+$TempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("codex-dual-profile-test-" + [Guid]::NewGuid().ToString("N"))
+$MockBin = Join-Path $TempRoot "mock-bin"
+$StateRoot = Join-Path $TempRoot "state"
+$PrimaryHome = Join-Path $TempRoot "primary-home"
+$SecondaryHome = Join-Path $TempRoot "secondary-home"
+$Workspace = Join-Path $TempRoot "workspace"
+$MockLog = Join-Path $TempRoot "codex.log"
+
+New-Item -ItemType Directory -Force -Path $MockBin, $PrimaryHome, $Workspace | Out-Null
+
+$mockCodex = @"
+@echo off
+>>"$MockLog" echo %CODEX_HOME%^|%*
+exit /b 0
+"@
+Set-Content -Encoding ASCII -Path (Join-Path $MockBin "codex.cmd") -Value $mockCodex
+$env:Path = "$MockBin;$env:Path"
+
+Push-Location $Workspace
+try {
+    git init -q
+    git config user.name "Dual Profile Test"
+    git config user.email "dual-profile@example.invalid"
+    Set-Content -Encoding UTF8 -Path "sample.txt" -Value "initial"
+    git add sample.txt
+    git commit -qm "initial"
+} finally {
+    Pop-Location
+}
+
+$setup = Join-Path $RepoRoot "scripts\setup-dual-codex.ps1"
+& $setup -PrimaryCodexHome $PrimaryHome -SecondaryCodexHome $SecondaryHome -StateRoot $StateRoot -SkipNpmLink -SkipPathUpdate
+
+$profilesPath = Join-Path $StateRoot "profiles.json"
+Assert-True (Test-Path $profilesPath) "profiles.json was not created"
+$profiles = Get-Content -Raw $profilesPath | ConvertFrom-Json
+Assert-True ($profiles.profiles.Count -eq 2) "expected two profiles"
+Assert-True ($profiles.security.containsCredentials -eq $false) "profile metadata must not contain credentials"
+Assert-True ($profiles.security.copiesAuthFiles -eq $false) "bootstrap must not copy auth files"
+Assert-True ($profiles.security.copiesNativeSessions -eq $false) "bootstrap must not copy native sessions"
+
+foreach ($home in @($PrimaryHome, $SecondaryHome)) {
+    $agents = Join-Path $home "AGENTS.md"
+    Assert-True (Test-Path $agents) "AGENTS.md was not installed into $home"
+    $text = Get-Content -Raw $agents
+    Assert-True ($text.Contains("codex-quota-watcher:handoff:start")) "handoff rule missing from $home"
+}
+
+$bin = Join-Path $StateRoot "bin"
+$aCmd = Join-Path $bin "codex-a.cmd"
+$bCmd = Join-Path $bin "codex-b.cmd"
+Assert-True (Test-Path $aCmd) "codex-a.cmd missing"
+Assert-True (Test-Path $bCmd) "codex-b.cmd missing"
+Assert-True ((Get-Content -Raw $bCmd).Contains("`r`n")) "codex-b.cmd must contain real CRLF line breaks"
+Assert-True (-not (Get-Content -Raw $bCmd).Contains('`r`n')) "codex-b.cmd contains literal backtick newline text"
+
+$bLauncher = Join-Path $bin "codex-b.ps1"
+& $bLauncher -Workspace $Workspace --version
+
+$handoffDir = Join-Path $Workspace ".codex-handoff"
+Assert-True (Test-Path (Join-Path $handoffDir "FACTS.md")) "FACTS.md was not created before launching profile B"
+Assert-True (Test-Path (Join-Path $handoffDir "HANDOFF.md")) "HANDOFF.md was not created before launching profile B"
+
+$log = Get-Content -Raw $MockLog
+Assert-True ($log.Contains($SecondaryHome)) "profile B launcher did not set the secondary CODEX_HOME"
+Assert-True ($log.Contains("--version")) "profile B launcher did not forward Codex arguments"
+
+Write-Host "Windows dual-profile bootstrap integration test passed."
