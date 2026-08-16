@@ -48,11 +48,11 @@ Assert-True ($profiles.security.containsCredentials -eq $false) "profile metadat
 Assert-True ($profiles.security.copiesAuthFiles -eq $false) "bootstrap must not copy auth files"
 Assert-True ($profiles.security.copiesNativeSessions -eq $false) "bootstrap must not copy native sessions"
 
-foreach ($home in @($PrimaryHome, $SecondaryHome)) {
-    $agents = Join-Path $home "AGENTS.md"
-    Assert-True (Test-Path $agents) "AGENTS.md was not installed into $home"
+foreach ($profileHome in @($PrimaryHome, $SecondaryHome)) {
+    $agents = Join-Path $profileHome "AGENTS.md"
+    Assert-True (Test-Path $agents) "AGENTS.md was not installed into $profileHome"
     $text = Get-Content -Raw $agents
-    Assert-True ($text.Contains("codex-quota-watcher:handoff:start")) "handoff rule missing from $home"
+    Assert-True ($text.Contains("codex-quota-watcher:handoff:start")) "handoff rule missing from $profileHome"
 }
 
 $bin = Join-Path $StateRoot "bin"
