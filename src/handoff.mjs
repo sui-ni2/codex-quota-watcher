@@ -11,9 +11,12 @@ const HANDOFF_DIR = ".codex-handoff";
 const FACTS_FILE = "FACTS.md";
 const FACTS_JSON_FILE = "facts.json";
 const HANDOFF_FILE = "HANDOFF.md";
+const SESSION_FILE = "SESSION.md";
+const SESSION_JSON_FILE = "session.json";
 const EXCLUDE_LINE = `${HANDOFF_DIR}/`;
 const MAX_STATUS_LINES = 200;
 const MAX_COMMITS = 5;
+const PROFILE_PATTERN = /^[A-Za-z0-9_.-]{1,40}$/;
 
 const SENSITIVE_PARTS = new Set([
   ".env",
@@ -33,10 +36,12 @@ const AGENT_BLOCK = `${AGENT_BLOCK_START}
 
 This profile participates in local Codex account handoff. The Git worktree is the source of truth; do not assume another ChatGPT/Codex account shares this profile's native thread history.
 
-- At the start of work in a Git repository, if \`.codex-handoff/HANDOFF.md\` exists, read it together with \`.codex-handoff/FACTS.md\` before changing files.
-- Before an explicit user-requested account switch, run \`codex-handoff checkpoint .\`, then update only these sections in \`.codex-handoff/HANDOFF.md\`: Objective, Completed, Decisions / constraints, Blockers, Next action.
+- At the start of work in a Git repository, if \`.codex-handoff/\` exists, read \`SESSION.md\`, \`HANDOFF.md\`, and \`FACTS.md\` when present before changing files.
+- Use \`SESSION.md\` only as local lifecycle evidence: profile identity, timestamps, fingerprints, and process exit status. A non-zero or missing prior exit is a recovery signal, not proof of quota exhaustion.
+- If the previous profile differs from the current profile, continue from verified local Git/files plus the handoff files. Do not ask the user to repeat context that can be reconstructed locally.
+- Before an explicit user-requested account switch, update only these sections in \`.codex-handoff/HANDOFF.md\`: Objective, Completed, Decisions / constraints, Blockers, Next action. The profile launcher handles factual checkpoints automatically.
 - Keep the semantic handoff concise (target <= 80 lines). Never copy credentials, tokens, cookies, private chain-of-thought, full chat transcripts, or large source/diff bodies into it.
-- If the prior account ended before writing semantic context, run \`codex-handoff resume .\`, reconstruct only from current Git/files, and mark any remaining context gap instead of inventing it.
+- If the prior account ended before writing semantic context, reconstruct only from current Git/files and factual handoff evidence. Mark a context gap only when the user's intent cannot be recovered from that evidence.
 - Current repository state overrides a stale handoff.
 ${AGENT_BLOCK_END}`;
 
@@ -51,6 +56,22 @@ export function safeDisplayPath(value) {
   if (parts.some((part) => SENSITIVE_PARTS.has(part))) return "[sensitive path omitted]";
   if (SENSITIVE_SUFFIXES.some((suffix) => normalized.endsWith(suffix))) return "[sensitive path omitted]";
   return raw;
+}
+
+function normalizeProfile(profile) {
+  const value = String(profile || "").trim();
+  if (!PROFILE_PATTERN.test(value)) {
+    throw new Error("profile must be 1-40 characters using only letters, numbers, dot, underscore, or hyphen");
+  }
+  return value;
+}
+
+function normalizeExitCode(exitCode) {
+  const value = Number(exitCode);
+  if (!Number.isInteger(value) || value < 0 || value > 2147483647) {
+    throw new Error("exit code must be a non-negative integer");
+  }
+  return value;
 }
 
 async function git(root, ...args) {
@@ -198,7 +219,35 @@ function defaultHandoffTemplate() {
     "- None recorded yet.",
     "",
     "## Next action",
-    "- Read `FACTS.md`, inspect the current repository state, and continue from verified local evidence.",
+    "- Read `SESSION.md` and `FACTS.md`, inspect the current repository state, and continue from verified local evidence.",
+    "",
+  ].join("\n");
+}
+
+function renderSession(session) {
+  const current = session.current;
+  const previous = session.previous;
+  const currentState = current.endedAt ? "completed" : "active";
+  const previousState = previous ? (previous.endedAt ? "completed" : "no recorded end") : "none";
+  return [
+    "# Codex Handoff Session",
+    "",
+    `Current profile: \`${current.profile}\``,
+    `Current state: \`${currentState}\``,
+    `Started: \`${current.startedAt}\``,
+    `Ended: ${current.endedAt ? `\`${current.endedAt}\`` : "not recorded"}`,
+    `Exit code: ${current.exitCode === null ? "not recorded" : `\`${current.exitCode}\``}`,
+    `Start fingerprint: \`${current.startFingerprint}\``,
+    `End fingerprint: ${current.endFingerprint ? `\`${current.endFingerprint}\`` : "not recorded"}`,
+    "",
+    "## Previous session",
+    `Profile: ${previous ? `\`${previous.profile}\`` : "none"}`,
+    `State: \`${previousState}\``,
+    `Started: ${previous?.startedAt ? `\`${previous.startedAt}\`` : "not recorded"}`,
+    `Ended: ${previous?.endedAt ? `\`${previous.endedAt}\`` : "not recorded"}`,
+    `Exit code: ${previous?.exitCode === null || previous?.exitCode === undefined ? "not recorded" : `\`${previous.exitCode}\``}`,
+    "",
+    "> Lifecycle metadata only. A non-zero or missing exit is not a diagnosis of quota exhaustion.",
     "",
   ].join("\n");
 }
@@ -221,6 +270,11 @@ async function readTextIfExists(filePath) {
   }
 }
 
+async function writeSession(handoffDir, session) {
+  await writeFile(path.join(handoffDir, SESSION_JSON_FILE), `${JSON.stringify(session, null, 2)}\n`, "utf8");
+  await writeFile(path.join(handoffDir, SESSION_FILE), renderSession(session), "utf8");
+}
+
 export async function checkpointWorkspace(workspace = ".") {
   const snapshot = await collectGitFacts(workspace);
   const handoffDir = path.join(snapshot.root, HANDOFF_DIR);
@@ -234,19 +288,66 @@ export async function checkpointWorkspace(workspace = ".") {
   return { root: snapshot.root, handoffDir, snapshot };
 }
 
+export async function startHandoffSession(workspace = ".", profile) {
+  const profileId = normalizeProfile(profile);
+  const checkpoint = await checkpointWorkspace(workspace);
+  const sessionPath = path.join(checkpoint.handoffDir, SESSION_JSON_FILE);
+  const existing = await readJsonIfExists(sessionPath);
+  const previous = existing?.current || null;
+  const session = {
+    schema: 1,
+    current: {
+      profile: profileId,
+      startedAt: new Date().toISOString(),
+      endedAt: null,
+      exitCode: null,
+      startFingerprint: checkpoint.snapshot.fingerprint,
+      endFingerprint: null,
+    },
+    previous,
+  };
+  await writeSession(checkpoint.handoffDir, session);
+  return { ...checkpoint, session };
+}
+
+export async function endHandoffSession(workspace = ".", profile, exitCode = 0) {
+  const profileId = normalizeProfile(profile);
+  const normalizedExitCode = normalizeExitCode(exitCode);
+  const checkpoint = await checkpointWorkspace(workspace);
+  const sessionPath = path.join(checkpoint.handoffDir, SESSION_JSON_FILE);
+  const session = await readJsonIfExists(sessionPath);
+  if (!session?.current) throw new Error("cannot end handoff session because no session-start record exists");
+  if (session.current.profile !== profileId) {
+    throw new Error(`cannot end profile ${profileId}; active handoff session belongs to ${session.current.profile}`);
+  }
+  const next = {
+    ...session,
+    current: {
+      ...session.current,
+      endedAt: new Date().toISOString(),
+      exitCode: normalizedExitCode,
+      endFingerprint: checkpoint.snapshot.fingerprint,
+    },
+  };
+  await writeSession(checkpoint.handoffDir, next);
+  return { ...checkpoint, session: next };
+}
+
 export async function inspectHandoff(workspace = ".") {
   const current = await collectGitFacts(workspace);
   const handoffDir = path.join(current.root, HANDOFF_DIR);
   const saved = await readJsonIfExists(path.join(handoffDir, FACTS_JSON_FILE));
   const semantic = await readTextIfExists(path.join(handoffDir, HANDOFF_FILE));
+  const session = await readJsonIfExists(path.join(handoffDir, SESSION_JSON_FILE));
   return {
     root: current.root,
     handoffDir,
-    exists: Boolean(saved || semantic),
+    exists: Boolean(saved || semantic || session),
     fresh: Boolean(saved && saved.fingerprint === current.fingerprint),
     saved,
     current,
     semantic,
+    session,
   };
 }
 
