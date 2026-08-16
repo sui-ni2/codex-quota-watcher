@@ -176,7 +176,7 @@ try {
                 $handoffEndError = "Handoff final checkpoint failed for profile $profileId."
             }
         } catch {
-            $handoffEndError = "Handoff final checkpoint failed for profile $profileId: $($_.Exception.Message)"
+            $handoffEndError = "Handoff final checkpoint failed for profile ${profileId}: $($_.Exception.Message)"
         }
     }
 
