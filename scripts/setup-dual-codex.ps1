@@ -75,7 +75,7 @@ $plan = [ordered]@{
     stateRoot = $StateRoot
     primary = [ordered]@{ name = "A"; codexHome = $PrimaryCodexHome; preservesExistingHome = $true }
     secondary = [ordered]@{ name = "B"; codexHome = $SecondaryCodexHome; newIsolatedHome = $true }
-    handoff = "local Git facts + compact semantic HANDOFF.md"
+    handoff = "local Git facts + lifecycle SESSION.md + compact semantic HANDOFF.md"
     credentialsCopied = $false
     nativeSessionsCopied = $false
     loginSecondary = [bool]$LoginSecondary
@@ -135,6 +135,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $targetHome = '__CODEX_HOME__'
+$profileId = '__PROFILE_ID__'
 $repoRoot = '__REPO_ROOT__'
 $handoffCli = Join-Path $repoRoot 'src\handoff-cli.mjs'
 $resolvedWorkspace = Resolve-Path $Workspace
@@ -148,12 +149,16 @@ try {
     $insideGit = $false
 }
 
+$sessionStarted = $false
 if ($insideGit) {
-    & node $handoffCli checkpoint $workspacePath
-    if ($LASTEXITCODE -ne 0) { throw "Handoff checkpoint failed; refusing to switch profile." }
+    & node $handoffCli session-start --profile $profileId $workspacePath
+    if ($LASTEXITCODE -ne 0) { throw "Handoff session start failed; refusing to launch profile $profileId." }
+    $sessionStarted = $true
 }
 
 $previousHome = $env:CODEX_HOME
+$codexExitCode = 1
+$handoffEndError = $null
 try {
     $env:CODEX_HOME = $targetHome
     Push-Location $workspacePath
@@ -164,20 +169,33 @@ try {
         Pop-Location
     }
 } finally {
+    if ($sessionStarted) {
+        try {
+            & node $handoffCli session-end --profile $profileId --exit-code $codexExitCode $workspacePath
+            if ($LASTEXITCODE -ne 0) {
+                $handoffEndError = "Handoff final checkpoint failed for profile $profileId."
+            }
+        } catch {
+            $handoffEndError = "Handoff final checkpoint failed for profile $profileId: $($_.Exception.Message)"
+        }
+    }
+
     if ($null -eq $previousHome) { Remove-Item Env:CODEX_HOME -ErrorAction SilentlyContinue }
     else { $env:CODEX_HOME = $previousHome }
 }
+
+if ($handoffEndError) { throw $handoffEndError }
 if ($codexExitCode -ne 0) { throw "Codex exited with code $codexExitCode" }
 '@
 
 $repoEscaped = Escape-SingleQuotedPowerShell $RepoRoot
 $launchers = @(
-    @{ Name = "codex-a.ps1"; Home = $PrimaryCodexHome },
-    @{ Name = "codex-b.ps1"; Home = $SecondaryCodexHome }
+    @{ Name = "codex-a.ps1"; Home = $PrimaryCodexHome; Profile = "A" },
+    @{ Name = "codex-b.ps1"; Home = $SecondaryCodexHome; Profile = "B" }
 )
 foreach ($launcher in $launchers) {
     $homeEscaped = Escape-SingleQuotedPowerShell $launcher.Home
-    $content = $launcherTemplate.Replace("__CODEX_HOME__", $homeEscaped).Replace("__REPO_ROOT__", $repoEscaped)
+    $content = $launcherTemplate.Replace("__CODEX_HOME__", $homeEscaped).Replace("__PROFILE_ID__", $launcher.Profile).Replace("__REPO_ROOT__", $repoEscaped)
     Set-Content -Encoding UTF8 -Path (Join-Path $BinRoot $launcher.Name) -Value $content
 }
 
@@ -218,5 +236,5 @@ Write-Host "Safe profile metadata: $ProfilesPath"
 Write-Host "Launch A: codex-a"
 Write-Host "Launch B: codex-b"
 Write-Host ""
-Write-Host "Each launcher checkpoints the current Git workspace before switching."
+Write-Host "Each launcher records session start and writes a final Git checkpoint after Codex exits."
 Write-Host "No auth file, OAuth token, cookie, or native session store was copied."
