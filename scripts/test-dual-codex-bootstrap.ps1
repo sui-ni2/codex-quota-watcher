@@ -20,6 +20,7 @@ New-Item -ItemType Directory -Force -Path $MockBin, $PrimaryHome, $Workspace | O
 $mockCodex = @"
 @echo off
 >>"$MockLog" echo %CODEX_HOME%^|%*
+>>"post-exit.txt" echo changed-during-codex
 exit /b 0
 "@
 Set-Content -Encoding ASCII -Path (Join-Path $MockBin "codex.cmd") -Value $mockCodex
@@ -53,6 +54,7 @@ foreach ($profileHome in @($PrimaryHome, $SecondaryHome)) {
     Assert-True (Test-Path $agents) "AGENTS.md was not installed into $profileHome"
     $text = Get-Content -Raw $agents
     Assert-True ($text.Contains("codex-quota-watcher:handoff:start")) "handoff rule missing from $profileHome"
+    Assert-True ($text.Contains("SESSION.md")) "session-aware handoff rule missing from $profileHome"
 }
 
 $bin = Join-Path $StateRoot "bin"
@@ -67,11 +69,33 @@ $bLauncher = Join-Path $bin "codex-b.ps1"
 & $bLauncher -Workspace $Workspace --version
 
 $handoffDir = Join-Path $Workspace ".codex-handoff"
-Assert-True (Test-Path (Join-Path $handoffDir "FACTS.md")) "FACTS.md was not created before launching profile B"
-Assert-True (Test-Path (Join-Path $handoffDir "HANDOFF.md")) "HANDOFF.md was not created before launching profile B"
+$factsPath = Join-Path $handoffDir "FACTS.md"
+$sessionPath = Join-Path $handoffDir "session.json"
+Assert-True (Test-Path $factsPath) "FACTS.md was not created for profile B"
+Assert-True (Test-Path (Join-Path $handoffDir "HANDOFF.md")) "HANDOFF.md was not created for profile B"
+Assert-True (Test-Path (Join-Path $handoffDir "SESSION.md")) "SESSION.md was not created for profile B"
+Assert-True (Test-Path $sessionPath) "session.json was not created for profile B"
+
+$facts = Get-Content -Raw $factsPath
+Assert-True ($facts.Contains("post-exit.txt")) "final checkpoint did not capture a file created while Codex was running"
+
+$sessionB = Get-Content -Raw $sessionPath | ConvertFrom-Json
+Assert-True ($sessionB.current.profile -eq "B") "profile B session was not recorded"
+Assert-True ($sessionB.current.exitCode -eq 0) "profile B exit code was not recorded"
+Assert-True (-not [string]::IsNullOrWhiteSpace($sessionB.current.endedAt)) "profile B session end was not recorded"
+Assert-True (-not [string]::IsNullOrWhiteSpace($sessionB.current.endFingerprint)) "profile B end fingerprint was not recorded"
+
+$aLauncher = Join-Path $bin "codex-a.ps1"
+& $aLauncher -Workspace $Workspace --help
+$sessionA = Get-Content -Raw $sessionPath | ConvertFrom-Json
+Assert-True ($sessionA.current.profile -eq "A") "profile A session was not recorded"
+Assert-True ($sessionA.previous.profile -eq "B") "profile transition B -> A was not preserved"
+Assert-True ($sessionA.previous.exitCode -eq 0) "previous profile exit status was not preserved"
 
 $log = Get-Content -Raw $MockLog
 Assert-True ($log.Contains($SecondaryHome)) "profile B launcher did not set the secondary CODEX_HOME"
+Assert-True ($log.Contains($PrimaryHome)) "profile A launcher did not set the primary CODEX_HOME"
 Assert-True ($log.Contains("--version")) "profile B launcher did not forward Codex arguments"
+Assert-True ($log.Contains("--help")) "profile A launcher did not forward Codex arguments"
 
 Write-Host "Windows dual-profile bootstrap integration test passed."
