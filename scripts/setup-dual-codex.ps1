@@ -2,6 +2,7 @@
 param(
     [string]$PrimaryCodexHome = "",
     [string]$SecondaryCodexHome = "",
+    [string]$StateRoot = "",
     [switch]$LoginSecondary,
     [switch]$SkipNpmLink,
     [switch]$SkipPathUpdate,
@@ -22,7 +23,12 @@ function Require-Command {
 
 function Resolve-HomePath {
     param([Parameter(Mandatory = $true)][string]$Value)
-    return [System.IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($Value))
+    $expanded = [Environment]::ExpandEnvironmentVariables($Value)
+    if ($expanded -eq "~") { $expanded = $HOME }
+    elseif ($expanded.StartsWith("~\") -or $expanded.StartsWith("~/")) {
+        $expanded = Join-Path $HOME $expanded.Substring(2)
+    }
+    return [System.IO.Path]::GetFullPath($expanded)
 }
 
 function Escape-SingleQuotedPowerShell {
@@ -35,11 +41,14 @@ if ($env:OS -ne "Windows_NT" -and -not $DryRun) {
 }
 
 $RepoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
-$StateRoot = if ($env:LOCALAPPDATA) {
-    Join-Path $env:LOCALAPPDATA "CodexQuotaWatcher"
-} else {
-    Join-Path $HOME ".codex-quota-watcher"
+if ([string]::IsNullOrWhiteSpace($StateRoot)) {
+    $StateRoot = if ($env:LOCALAPPDATA) {
+        Join-Path $env:LOCALAPPDATA "CodexQuotaWatcher"
+    } else {
+        Join-Path $HOME ".codex-quota-watcher"
+    }
 }
+$StateRoot = Resolve-HomePath $StateRoot
 $BinRoot = Join-Path $StateRoot "bin"
 $ProfilesPath = Join-Path $StateRoot "profiles.json"
 
@@ -74,7 +83,7 @@ $plan = [ordered]@{
 
 if ($DryRun) {
     $plan | ConvertTo-Json -Depth 5
-    exit 0
+    return
 }
 
 $null = Require-Command "node"
@@ -128,7 +137,8 @@ $ErrorActionPreference = "Stop"
 $targetHome = '__CODEX_HOME__'
 $repoRoot = '__REPO_ROOT__'
 $handoffCli = Join-Path $repoRoot 'src\handoff-cli.mjs'
-$workspacePath = [System.IO.Path]::GetFullPath((Resolve-Path $Workspace))
+$resolvedWorkspace = Resolve-Path $Workspace
+$workspacePath = [System.IO.Path]::GetFullPath($resolvedWorkspace.Path)
 
 $insideGit = $false
 try {
@@ -149,7 +159,7 @@ try {
     Push-Location $workspacePath
     try {
         & codex @CodexArgs
-        $exitCode = $LASTEXITCODE
+        $codexExitCode = $LASTEXITCODE
     } finally {
         Pop-Location
     }
@@ -157,7 +167,7 @@ try {
     if ($null -eq $previousHome) { Remove-Item Env:CODEX_HOME -ErrorAction SilentlyContinue }
     else { $env:CODEX_HOME = $previousHome }
 }
-exit $exitCode
+if ($codexExitCode -ne 0) { throw "Codex exited with code $codexExitCode" }
 '@
 
 $repoEscaped = Escape-SingleQuotedPowerShell $RepoRoot
@@ -171,7 +181,7 @@ foreach ($launcher in $launchers) {
     Set-Content -Encoding UTF8 -Path (Join-Path $BinRoot $launcher.Name) -Value $content
 }
 
-$cmdTemplate = '@echo off`r`npowershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0__PS1__" %*`r`n'
+$cmdTemplate = "@echo off`r`npowershell.exe -NoProfile -ExecutionPolicy Bypass -File `"%~dp0__PS1__`" %*`r`n"
 Set-Content -Encoding ASCII -Path (Join-Path $BinRoot "codex-a.cmd") -Value ($cmdTemplate.Replace("__PS1__", "codex-a.ps1"))
 Set-Content -Encoding ASCII -Path (Join-Path $BinRoot "codex-b.cmd") -Value ($cmdTemplate.Replace("__PS1__", "codex-b.ps1"))
 
