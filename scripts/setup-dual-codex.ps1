@@ -104,9 +104,9 @@ if (-not $SkipNpmLink) {
 }
 
 $HandoffCli = Join-Path $RepoRoot "src\handoff-cli.mjs"
-foreach ($home in @($PrimaryCodexHome, $SecondaryCodexHome)) {
-    & node $HandoffCli install-agent --codex-home $home
-    if ($LASTEXITCODE -ne 0) { throw "Failed to install handoff agent into '$home'." }
+foreach ($profileHome in @($PrimaryCodexHome, $SecondaryCodexHome)) {
+    & node $HandoffCli install-agent --codex-home $profileHome
+    if ($LASTEXITCODE -ne 0) { throw "Failed to install handoff agent into '$profileHome'." }
 }
 
 $profiles = [ordered]@{
