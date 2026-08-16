@@ -72,13 +72,32 @@ test("agent install preserves existing instructions and is idempotent", async ()
   const agentsPath = path.join(home, "AGENTS.md");
   await writeFile(agentsPath, "# Existing rules\n\nKeep this.\n", "utf8");
 
-  await installHandoffAgent(home);
+  const installedPath = await installHandoffAgent(home);
   await installHandoffAgent(home);
   const content = await readFile(agentsPath, "utf8");
 
+  assert.equal(installedPath, agentsPath);
   assert.match(content, /# Existing rules/);
   assert.match(content, /Keep this\./);
   assert.equal(content.split(AGENT_BLOCK_START).length - 1, 1);
   assert.match(content, /codex-handoff checkpoint \./);
   assert.doesNotMatch(content, /auth\.json/);
+});
+
+test("agent install uses an existing non-empty AGENTS.override.md because Codex gives it precedence", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "codex-handoff-override-"));
+  const normalPath = path.join(home, "AGENTS.md");
+  const overridePath = path.join(home, "AGENTS.override.md");
+  await writeFile(normalPath, "# Normal rules\n", "utf8");
+  await writeFile(overridePath, "# Override rules\n\nKeep override.\n", "utf8");
+
+  const installedPath = await installHandoffAgent(home);
+  const normal = await readFile(normalPath, "utf8");
+  const override = await readFile(overridePath, "utf8");
+
+  assert.equal(installedPath, overridePath);
+  assert.equal(normal, "# Normal rules\n");
+  assert.match(override, /# Override rules/);
+  assert.match(override, /Keep override\./);
+  assert.equal(override.split(AGENT_BLOCK_START).length - 1, 1);
 });
