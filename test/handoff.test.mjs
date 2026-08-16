@@ -9,9 +9,11 @@ import { promisify } from "node:util";
 import {
   AGENT_BLOCK_START,
   checkpointWorkspace,
+  endHandoffSession,
   inspectHandoff,
   installHandoffAgent,
   safeDisplayPath,
+  startHandoffSession,
 } from "../src/handoff.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -60,6 +62,46 @@ test("resume detects a worktree change after the saved checkpoint", async () => 
   assert.equal(inspection.fresh, false);
 });
 
+test("session lifecycle records profile transition and final post-Codex worktree", async () => {
+  const root = await createRepo();
+
+  const startedA = await startHandoffSession(root, "A");
+  assert.equal(startedA.session.current.profile, "A");
+  assert.equal(startedA.session.current.endedAt, null);
+  assert.equal(startedA.session.previous, null);
+
+  await writeFile(path.join(root, "after-start.txt"), "created while Codex was running\n", "utf8");
+  const endedA = await endHandoffSession(root, "A", 7);
+  assert.equal(endedA.session.current.exitCode, 7);
+  assert.ok(endedA.session.current.endedAt);
+  assert.equal(endedA.session.current.endFingerprint, endedA.snapshot.fingerprint);
+
+  const facts = await readFile(path.join(endedA.handoffDir, "FACTS.md"), "utf8");
+  const sessionText = await readFile(path.join(endedA.handoffDir, "SESSION.md"), "utf8");
+  const sessionJson = JSON.parse(await readFile(path.join(endedA.handoffDir, "session.json"), "utf8"));
+  assert.match(facts, /after-start\.txt/);
+  assert.match(sessionText, /Current profile: `A`/);
+  assert.match(sessionText, /Exit code: `7`/);
+  assert.equal(sessionJson.current.exitCode, 7);
+
+  const startedB = await startHandoffSession(root, "B");
+  assert.equal(startedB.session.current.profile, "B");
+  assert.equal(startedB.session.previous.profile, "A");
+  assert.equal(startedB.session.previous.exitCode, 7);
+
+  const inspection = await inspectHandoff(root);
+  assert.equal(inspection.session.current.profile, "B");
+  assert.equal(inspection.session.previous.profile, "A");
+});
+
+test("session lifecycle rejects unsafe profile identifiers and mismatched session end", async () => {
+  const root = await createRepo();
+  await assert.rejects(() => startHandoffSession(root, "A B"), /profile must be/);
+  await startHandoffSession(root, "A");
+  await assert.rejects(() => endHandoffSession(root, "B", 0), /active handoff session belongs to A/);
+  await assert.rejects(() => endHandoffSession(root, "A", -1), /exit code/);
+});
+
 test("sensitive-looking paths are omitted from factual display", () => {
   assert.equal(safeDisplayPath(".env"), "[sensitive path omitted]");
   assert.equal(safeDisplayPath("secrets/token.txt"), "[sensitive path omitted]");
@@ -80,7 +122,8 @@ test("agent install preserves existing instructions and is idempotent", async ()
   assert.match(content, /# Existing rules/);
   assert.match(content, /Keep this\./);
   assert.equal(content.split(AGENT_BLOCK_START).length - 1, 1);
-  assert.match(content, /codex-handoff checkpoint \./);
+  assert.match(content, /SESSION\.md/);
+  assert.match(content, /profile launcher handles factual checkpoints automatically/);
   assert.doesNotMatch(content, /auth\.json/);
 });
 
