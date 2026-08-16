@@ -212,6 +212,15 @@ async function readJsonIfExists(filePath) {
   }
 }
 
+async function readTextIfExists(filePath) {
+  try {
+    return await readFile(filePath, "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
 export async function checkpointWorkspace(workspace = ".") {
   const snapshot = await collectGitFacts(workspace);
   const handoffDir = path.join(snapshot.root, HANDOFF_DIR);
@@ -220,12 +229,8 @@ export async function checkpointWorkspace(workspace = ".") {
   await writeFile(path.join(handoffDir, FACTS_JSON_FILE), `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
   await writeFile(path.join(handoffDir, FACTS_FILE), renderFacts(snapshot), "utf8");
   const handoffPath = path.join(handoffDir, HANDOFF_FILE);
-  try {
-    await readFile(handoffPath, "utf8");
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
-    await writeFile(handoffPath, defaultHandoffTemplate(), "utf8");
-  }
+  const existing = await readTextIfExists(handoffPath);
+  if (existing === null) await writeFile(handoffPath, defaultHandoffTemplate(), "utf8");
   return { root: snapshot.root, handoffDir, snapshot };
 }
 
@@ -233,12 +238,7 @@ export async function inspectHandoff(workspace = ".") {
   const current = await collectGitFacts(workspace);
   const handoffDir = path.join(current.root, HANDOFF_DIR);
   const saved = await readJsonIfExists(path.join(handoffDir, FACTS_JSON_FILE));
-  let semantic = null;
-  try {
-    semantic = await readFile(path.join(handoffDir, HANDOFF_FILE), "utf8");
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
-  }
+  const semantic = await readTextIfExists(path.join(handoffDir, HANDOFF_FILE));
   return {
     root: current.root,
     handoffDir,
@@ -257,13 +257,11 @@ export function defaultCodexHome() {
 export async function installHandoffAgent(codexHome = defaultCodexHome()) {
   const home = path.resolve(codexHome);
   await mkdir(home, { recursive: true });
-  const agentsPath = path.join(home, "AGENTS.md");
-  let current = "";
-  try {
-    current = await readFile(agentsPath, "utf8");
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
-  }
+
+  const overridePath = path.join(home, "AGENTS.override.md");
+  const override = await readTextIfExists(overridePath);
+  const agentsPath = override?.trim() ? overridePath : path.join(home, "AGENTS.md");
+  const current = (await readTextIfExists(agentsPath)) || "";
 
   const start = current.indexOf(AGENT_BLOCK_START);
   const end = current.indexOf(AGENT_BLOCK_END);
