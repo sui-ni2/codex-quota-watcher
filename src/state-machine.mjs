@@ -124,7 +124,7 @@ export function evaluateTransition(previousState, currentSnapshot, now = new Dat
 
   const oldCredits = previous?.resetCredits?.availableCount;
   const newCredits = currentSnapshot?.resetCredits?.availableCount;
-  if (previous && newCredits !== null && newCredits !== undefined && (oldCredits ?? 0) < newCredits) {
+  if (previous && typeof oldCredits === "number" && typeof newCredits === "number" && newCredits > oldCredits) {
     events.push({
       type: "RESET_CREDIT_GRANTED",
       limitId: currentSnapshot.limitId,

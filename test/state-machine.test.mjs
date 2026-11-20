@@ -90,3 +90,17 @@ test("unknown responses fail closed", () => {
   const previous = state(normalizeRateLimits(payload({ primaryUsed: 100 })));
   assert.deepEqual(evaluateTransition(previous, normalizeRateLimits({})).events, []);
 });
+
+test("first observed credit balance is not a granted-credit event without a previous count", () => {
+  const previous = normalizeRateLimits(payload({ primaryUsed: 100, credits: null }));
+  const current = normalizeRateLimits(payload({ primaryUsed: 100, credits: 2 }));
+  assert.equal(previous.resetCredits, null);
+  assert.deepEqual(evaluateTransition(state(previous), current).events, []);
+});
+
+test("credit-granted alert requires a real previous numeric baseline", () => {
+  const previous = normalizeRateLimits(payload({ primaryUsed: 100, credits: 0 }));
+  const current = normalizeRateLimits(payload({ primaryUsed: 100, credits: 2 }));
+  const result = evaluateTransition(state(previous), current);
+  assert.equal(result.events.filter((event) => event.type === "RESET_CREDIT_GRANTED").length, 1);
+});
