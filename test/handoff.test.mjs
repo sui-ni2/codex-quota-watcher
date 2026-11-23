@@ -106,6 +106,12 @@ test("sensitive-looking paths are omitted from factual display", () => {
   assert.equal(safeDisplayPath(".env"), "[sensitive path omitted]");
   assert.equal(safeDisplayPath("secrets/token.txt"), "[sensitive path omitted]");
   assert.equal(safeDisplayPath("certs/client.pem"), "[sensitive path omitted]");
+  assert.equal(safeDisplayPath("src/.env.local"), "[sensitive path omitted]");
+  assert.equal(safeDisplayPath("src/.env.production"), "[sensitive path omitted]");
+  assert.equal(safeDisplayPath("config/auth.json"), "[sensitive path omitted]");
+  assert.equal(safeDisplayPath("config/token.json"), "[sensitive path omitted]");
+  assert.equal(safeDisplayPath("config/credentials.json"), "[sensitive path omitted]");
+  assert.equal(safeDisplayPath("src/tokenizer.mjs"), "src/tokenizer.mjs");
   assert.equal(safeDisplayPath("src/app.mjs"), "src/app.mjs");
 });
 

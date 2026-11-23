@@ -25,6 +25,9 @@ const SENSITIVE_PARTS = new Set([
   "credentials",
   "cookies",
   "browser-profiles",
+  "auth.json",
+  "credentials.json",
+  "token.json",
 ]);
 const SENSITIVE_SUFFIXES = [".key", ".pem", ".p12", ".pfx"];
 
@@ -53,7 +56,7 @@ export function safeDisplayPath(value) {
   const raw = String(value || "").trim().replace(/^"|"$/g, "");
   const normalized = normalizePathForSafety(raw);
   const parts = normalized.split("/").filter(Boolean);
-  if (parts.some((part) => SENSITIVE_PARTS.has(part))) return "[sensitive path omitted]";
+  if (parts.some((part) => SENSITIVE_PARTS.has(part) || part.startsWith(".env."))) return "[sensitive path omitted]";
   if (SENSITIVE_SUFFIXES.some((suffix) => normalized.endsWith(suffix))) return "[sensitive path omitted]";
   return raw;
 }
