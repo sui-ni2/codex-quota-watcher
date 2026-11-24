@@ -43,11 +43,15 @@ export function weeklyResetAt(snapshot) {
 
 export function normalizeRateLimits(payload, limitId = "codex", checkedAt = new Date()) {
   const byId = payload?.rateLimitsByLimitId;
-  const raw = byId && typeof byId === "object" && byId[limitId]
-    ? byId[limitId]
-    : payload?.rateLimits;
+  const hasMap = byId !== null && typeof byId === "object" && !Array.isArray(byId);
+  const mapped = hasMap && Object.hasOwn(byId, limitId) ? byId[limitId] : null;
+  const legacy = payload?.rateLimits;
+  // A legacy response without an identity is only usable for the default Codex bucket.
+  const legacyMatches = legacy?.limitId === limitId
+    || (!hasMap && limitId === "codex" && legacy?.limitId == null);
+  const raw = mapped ?? (legacyMatches ? legacy : null);
 
-  if (!raw || typeof raw !== "object") {
+  if (!raw || typeof raw !== "object" || (raw.limitId != null && raw.limitId !== limitId)) {
     return { status: "unknown", limitId, checkedAt: checkedAt.toISOString() };
   }
 
@@ -114,8 +118,10 @@ function stateBase(previousState, currentSnapshot, officialSignal) {
 }
 
 export function evaluateTransition(previousState, currentSnapshot, now = new Date(), officialSignal = null) {
-  const previous = previousState?.lastSnapshot ?? null;
-  const nextState = stateBase(previousState, currentSnapshot, officialSignal);
+  const savedSnapshot = previousState?.lastSnapshot ?? null;
+  const sameBucket = savedSnapshot?.limitId === currentSnapshot.limitId;
+  const previous = sameBucket ? savedSnapshot : null;
+  const nextState = stateBase(sameBucket ? previousState : null, currentSnapshot, officialSignal);
   const events = [];
 
   if (currentSnapshot.status === "blocked" && !nextState.blockedSince) {
