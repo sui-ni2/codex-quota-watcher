@@ -104,3 +104,43 @@ test("credit-granted alert requires a real previous numeric baseline", () => {
   const result = evaluateTransition(state(previous), current);
   assert.equal(result.events.filter((event) => event.type === "RESET_CREDIT_GRANTED").length, 1);
 });
+
+test("does not fall back to a different bucket when an explicit bucket is absent", () => {
+  const raw = payload().rateLimitsByLimitId.codex;
+  const result = normalizeRateLimits({ rateLimitsByLimitId: { codex: raw }, rateLimits: raw }, "other");
+  assert.equal(result.status, "unknown");
+  assert.equal(result.limitId, "other");
+  assert.equal(normalizeRateLimits({ rateLimits: raw }, "other").status, "unknown");
+  assert.equal(normalizeRateLimits({ rateLimitsByLimitId: { other: raw } }, "other").status, "unknown");
+});
+
+test("accepts matching bucket identities and default legacy snapshots", () => {
+  const raw = payload().rateLimitsByLimitId.codex;
+  const other = { ...raw, limitId: "other" };
+  assert.equal(normalizeRateLimits({ rateLimitsByLimitId: { other } }, "other").status, "available");
+  assert.equal(normalizeRateLimits({ rateLimits: other }, "other").status, "available");
+  const anonymous = { ...raw };
+  delete anonymous.limitId;
+  assert.equal(normalizeRateLimits({ rateLimits: anonymous }, "codex").status, "available");
+  assert.equal(normalizeRateLimits({ rateLimits: anonymous }, "other").status, "unknown");
+  assert.equal(normalizeRateLimits({ rateLimitsByLimitId: { codex: raw }, rateLimits: anonymous }, "other").status, "unknown");
+  assert.equal(normalizeRateLimits({ rateLimitsByLimitId: { other: anonymous } }, "other").limitId, "other");
+});
+
+test("a different bucket establishes a new baseline without false recovery or credit events", () => {
+  const previous = normalizeRateLimits(payload({ primaryUsed: 100, credits: 0 }));
+  const other = { ...payload({ credits: 2 }).rateLimitsByLimitId.codex, limitId: "other" };
+  const current = normalizeRateLimits({ rateLimits: other, rateLimitResetCredits: { availableCount: 2 } }, "other");
+  const result = evaluateTransition(state(previous, { blockedSince: previous.checkedAt, lastEventKey: "old" }), current);
+  assert.deepEqual(result.events, []);
+  assert.equal(result.nextState.lastSnapshot.limitId, "other");
+  assert.equal(result.nextState.blockedSince, null);
+  assert.equal(result.nextState.lastEventKey, null);
+});
+
+test("a different bucket cannot prove a weekly rollover", () => {
+  const previous = normalizeRateLimits(payload({ secondaryUsed: 30, secondaryReset: 2_000 }));
+  const other = { ...payload({ secondaryUsed: 20, secondaryReset: 606_800 }).rateLimitsByLimitId.codex, limitId: "other" };
+  const current = normalizeRateLimits({ rateLimits: other }, "other");
+  assert.deepEqual(evaluateTransition(state(previous), current, new Date(2_100_000)).events, []);
+});
